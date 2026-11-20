@@ -1,0 +1,98 @@
+[package]
+name = "sidepulse"
+version = "0.1.0"
+edition = "2024"
+description = "Lean Rust companion for SidePulse LED devices"
+license = "MIT"
+publish = false
+
+[dependencies]
+lexopt = "0.3"
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wasmi = { version = "2", default-features = false, features = ["std", "validate", "auto-dispatch"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+dispatch2 = "0.3"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSAccessibility",
+    "NSAppearance",
+    "NSApplication",
+    "NSBox",
+    "NSButton",
+    "NSButtonCell",
+    "NSClipView",
+    "NSGraphics",
+    "NSGraphicsContext",
+    "NSBezierPath",
+    "NSImageView",
+    "NSLayoutConstraint",
+    "NSParagraphStyle",
+    "NSPopUpButton",
+    "NSScrollView",
+    "NSSlider",
+    "NSStackView",
+    "NSTabView",
+    "NSTabViewItem",
+    "NSText",
+    "NSTextField",
+    "NSTextStorage",
+    "NSTextView",
+    "NSUserInterfaceLayout",
+    "NSWindow",
+    "NSCell",
+    "NSColor",
+    "NSControl",
+    "NSEvent",
+    "NSFont",
+    "NSFontDescriptor",
+    "NSImage",
+    "NSMenu",
+    "NSMenuItem",
+    "NSResponder",
+    "NSRunningApplication",
+    "NSStatusBar",
+    "NSStatusBarButton",
+    "NSStatusItem",
+    "NSView",
+    "NSWorkspace",
+    "objc2-core-foundation",
+    "objc2-quartz-core",
+] }
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CALayer", "CAAnimation", "CAMediaTiming", "CAMediaTimingFunction", "CATransaction", "objc2-core-foundation"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "CFArray",
+    "CFBase",
+    "CFDictionary",
+    "CFNumber",
+    "CFRunLoop",
+    "CFString",
+    "CFCGTypes",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSArray",
+    "NSAttributedString",
+    "NSDictionary",
+    "NSNotification",
+    "NSObject",
+    "NSRunLoop",
+    "NSString",
+    "NSThread",
+    "NSTimer",
+    "NSURL",
+    "NSDate",
+    "NSValue",
+] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
