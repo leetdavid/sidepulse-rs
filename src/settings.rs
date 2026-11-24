@@ -41,6 +41,7 @@ pub struct Settings {
     pub devices: Vec<DeviceSetting>,
     pub session_timeout_seconds: f64,
     pub show_menu_bar_icon: bool,
+    pub herdr_remote_enabled: bool,
     pub sleep_policy: SleepPolicy,
     pub sleep_min_battery_percent: f64,
     pub show_on_power_change: bool,
@@ -68,6 +69,7 @@ impl Default for Settings {
             devices: Vec::new(),
             session_timeout_seconds: DEFAULT_SESSION_TIMEOUT_SECONDS,
             show_menu_bar_icon: true,
+            herdr_remote_enabled: true,
             sleep_policy: SleepPolicy::Agents,
             sleep_min_battery_percent: 20.0,
             show_on_power_change: true,
@@ -164,6 +166,9 @@ impl Settings {
 
         if let Some(show) = data.get("show_menu_bar_icon").and_then(Value::as_bool) {
             settings.show_menu_bar_icon = show;
+        }
+        if let Some(enabled) = root.pointer("/herdr_remote/enabled").and_then(Value::as_bool) {
+            settings.herdr_remote_enabled = enabled;
         }
         settings.sleep_policy = match data.get("sleep_prevention_policy").and_then(Value::as_str) {
             Some("never") => SleepPolicy::Never,

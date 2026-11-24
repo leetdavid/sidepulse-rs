@@ -45,6 +45,7 @@ const TAG_BATTERY_PREVIEW: isize = 4;
 const TAG_PREVIEW_SECONDS: isize = 5;
 const TAG_TERMINAL: isize = 6;
 const TAG_MENU_ICON: isize = 7;
+const TAG_HERDR_REMOTE: isize = 8;
 
 thread_local! {
     static WINDOW: RefCell<Option<SettingsWindow>> = const { RefCell::new(None) };
@@ -351,6 +352,7 @@ define_class!(
                 TAG_PREVIEW_SECONDS => set_path(root, &["battery_monitoring", "power_change_preview_seconds"], json!(PREVIEW_SECONDS[index()].0)),
                 TAG_TERMINAL => set_path(root, &["session_terminal", "app"], json!(TERMINALS[index()].0)),
                 TAG_MENU_ICON => set_path(root, &["show_menu_bar_icon"], json!(checked())),
+                TAG_HERDR_REMOTE => set_path(root, &["herdr_remote", "enabled"], json!(checked())),
                 _ => {}
             });
             if tag == TAG_TIMEOUT {
@@ -752,6 +754,13 @@ fn build_general_tab(mtm: MainThreadMarker, controller: &Controller, settings: &
     icon.setTag(TAG_MENU_ICON);
     icon.setState(if settings.show_menu_bar_icon { NSControlStateValueOn } else { NSControlStateValueOff });
     row("Menu bar", &icon);
+    let remote = unsafe {
+        NSButton::checkboxWithTitle_target_action(&NSString::from_str("Show agents on Herdr's saved SSH machines"), Some(target), Some(action), mtm)
+    };
+    remote.setFrame(rect(0.0, 0.0, 340.0, 24.0));
+    remote.setTag(TAG_HERDR_REMOTE);
+    remote.setState(if settings.herdr_remote_enabled { NSControlStateValueOn } else { NSControlStateValueOff });
+    row("Herdr remotes", &remote);
 
     view.addSubview(&button(mtm, "Open settings.json", rect(16.0, 16.0, 170.0, 32.0), target, sel!(openSettingsFile:), 0));
     view.addSubview(&button(mtm, "Open Log", rect(190.0, 16.0, 110.0, 32.0), target, sel!(openLog:), 0));

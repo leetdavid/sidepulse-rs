@@ -2,6 +2,7 @@ mod battery;
 mod daemon;
 mod device;
 mod herdr;
+mod herdr_remote;
 mod hook;
 mod install;
 mod led;
@@ -45,6 +46,7 @@ COMMANDS:
   settings                    Open the settings window
   report --json               Submit a program_status report on stdin (used by the OpenCode plugin)
   herdr sync                  Push Herdr pane agent states to the daemon (used by the Herdr plugin)
+  herdr remotes               Check Herdr's saved SSH machines (snapshot and live event stream)
   daemon [--no-menubar]       Run the background daemon (launchd runs this)
   install [--dry-run]         Install the LaunchAgent, move agent hooks here, park the Python agents
   uninstall [--dry-run]       Undo install and restore the Python hooks and agents
@@ -71,7 +73,8 @@ fn main() -> ExitCode {
         "report" => run_report(),
         "herdr" => match rest.first().map(|a| a.to_string_lossy().into_owned()).as_deref() {
             Some("sync") => herdr::sync(),
-            _ => Err("usage: sidepulse herdr sync".into()),
+            Some("remotes") => herdr_remote::check(),
+            _ => Err("usage: sidepulse herdr sync|remotes".into()),
         },
         "install" => install::install(rest.iter().any(|a| a == "--dry-run")),
         "uninstall" => install::uninstall(rest.iter().any(|a| a == "--dry-run")),
@@ -211,6 +214,12 @@ fn run_daemon(args: Vec<std::ffi::OsString>) -> Result<(), String> {
     thread::spawn(move || daemon::serve(listener, ipc_tx));
     let volume_tx = tx.clone();
     thread::spawn(move || daemon::watch_volumes(volume_tx));
+    if std::env::var_os("SIDEPULSE_NO_HERDR_REMOTE").is_none()
+        && let Some(herdr) = herdr::executable()
+    {
+        let remote_tx = tx.clone();
+        thread::spawn(move || herdr_remote::supervise(herdr, remote_tx));
+    }
 
     #[cfg(target_os = "macos")]
     {

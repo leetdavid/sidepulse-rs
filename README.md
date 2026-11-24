@@ -27,6 +27,7 @@ sidepulse settings                # open the settings window
 sidepulse hook --provider claude  # what agent hooks call (reads the payload on stdin)
 sidepulse report --json           # what the OpenCode plugin calls (program_status JSON on stdin)
 sidepulse herdr sync              # what the Herdr plugin calls on pane/agent events
+sidepulse herdr remotes           # check Herdr's saved SSH machines
 sidepulse daemon [--no-menubar]   # what launchd runs
 ```
 
@@ -63,6 +64,12 @@ sidepulse daemon [--no-menubar]   # what launchd runs
 - **Herdr**: `install` links a Herdr plugin (`sidepulse.status`) that runs `sidepulse herdr sync` on agent
   events. Agents Herdr sees but hooks don't cover appear as sessions; hooked sessions get their pane attached so
   a click focuses it.
+- **Herdr remotes**: for each enabled machine in `herdr machine list`, the daemon keeps one SSH connection
+  (`ssh -o BatchMode=yes <target>`) to the remote Herdr socket subscribed to agent and pane events, and takes a
+  snapshot through `herdr --machine <id> api snapshot` when one arrives (and every 2 minutes as a safety net).
+  Nothing polls in between. Remote sessions get their own menu section; a click focuses the pane and opens
+  Herdr. Machines that can't be reached show as Disconnected and are retried with backoff. Check them with
+  `sidepulse herdr remotes`; turn it off in Settings → General.
 - **OpenCode**: `install` writes `~/.config/opencode/plugins/sidepulse.ts` (vendored from upstream), which
   reports through `sidepulse report --json`.
 

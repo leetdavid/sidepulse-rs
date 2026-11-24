@@ -73,8 +73,17 @@ pub fn sync() -> Result<(), String> {
     let result = request(&socket, "session.snapshot", json!({}), Duration::from_secs(2))?;
     let snapshot = result.get("snapshot").ok_or("Herdr returned no snapshot")?;
     let agents = agents_from_snapshot(snapshot);
-    protocol::send(&paths::socket(), &Request::HerdrSync { socket, agents }, Duration::from_secs(2)).map_err(|e| e.to_string())?;
+    protocol::send(&paths::socket(), &Request::HerdrSync { socket, agents, label: None, connected: true }, Duration::from_secs(2))
+        .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+pub fn executable() -> Option<std::path::PathBuf> {
+    let from_path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).map(|d| d.join("herdr")).collect::<Vec<_>>()).unwrap_or_default();
+    from_path
+        .into_iter()
+        .chain([paths::home().join(".local/bin/herdr"), std::path::PathBuf::from("/opt/homebrew/bin/herdr")])
+        .find(|p| p.is_file())
 }
 
 pub fn focus_pane(socket: &str, pane_id: &str) -> Result<(), String> {
