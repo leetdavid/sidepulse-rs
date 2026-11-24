@@ -22,6 +22,7 @@ export SIDEPULSE_RS_STATE_DIR="$SANDBOX/state"
 export SIDEPULSE_SETTINGS="$SANDBOX/config/settings.json"
 export SIDEPULSE_MOUNT_ROOTS="$SANDBOX/volumes"
 export SIDEPULSE_NO_POWER_CONTROL=1
+export SIDEPULSE_NO_HERDR_REMOTE=1
 
 "$BIN" daemon --no-menubar 2> "$SANDBOX/daemon.log" &
 DAEMON=$!

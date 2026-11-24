@@ -28,13 +28,7 @@ const OPENCODE_PLUGIN: &str = include_str!("../resources/opencode/sidepulse.ts")
 const OPENCODE_MARKER: &str = "Managed by sidepulse-rs";
 
 fn herdr_executable() -> Option<PathBuf> {
-    let candidates = std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).map(|d| d.join("herdr")).collect::<Vec<_>>())
-        .unwrap_or_default();
-    candidates
-        .into_iter()
-        .chain([paths::home().join(".local/bin/herdr"), PathBuf::from("/opt/homebrew/bin/herdr")])
-        .find(|p| p.is_file())
+    crate::herdr::executable()
 }
 
 fn herdr(args: &[&str]) -> Result<(), String> {

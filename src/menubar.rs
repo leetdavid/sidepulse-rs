@@ -31,6 +31,7 @@ use crate::state::Session;
 use crate::status::{self, Mode};
 
 const MAX_ROWS: usize = 10;
+const HERDR_APP: &str = "dev.herdr.app";
 const ICON: f64 = 18.0;
 const DISPLAYS: [(&str, &str); 3] = [("agent", "Agent Status"), ("battery", "Battery Level"), ("custom", "Manual")];
 
@@ -215,15 +216,33 @@ impl Controller {
         menu.addItem(&NSMenuItem::separatorItem(mtm));
 
         menu.addItem(&NSMenuItem::sectionHeaderWithTitle(&NSString::from_str("Agents"), mtm));
-        let mut rows: Vec<Session> = snapshot.sessions.iter().chain(&snapshot.recent).cloned().collect();
-        rows.sort_by(|a, b| a.mode.priority().cmp(&b.mode.priority()).then(b.updated_ms.cmp(&a.updated_ms)));
-        rows.truncate(MAX_ROWS);
-        if rows.is_empty() {
+        let mut all: Vec<Session> = snapshot.sessions.iter().chain(&snapshot.recent).cloned().collect();
+        all.sort_by(|a, b| a.mode.priority().cmp(&b.mode.priority()).then(b.updated_ms.cmp(&a.updated_ms)));
+        let (remote, mut local): (Vec<Session>, Vec<Session>) = all.into_iter().partition(|s| s.herdr_machine().is_some());
+        local.truncate(MAX_ROWS);
+        if local.is_empty() {
             menu.addItem(&self.item("No recent sessions", None, ""));
         }
+        let mut machines: Vec<String> = Vec::new();
+        for session in &remote {
+            let label = remote_label(session);
+            if !machines.contains(&label) {
+                machines.push(label);
+            }
+        }
+        let mut rows: Vec<Session> = local;
+        let mut sections: Vec<(usize, String)> = Vec::new();
+        for machine in &machines {
+            sections.push((rows.len(), machine.clone()));
+            rows.extend(remote.iter().filter(|s| remote_label(s) == *machine).take(MAX_ROWS).cloned());
+        }
         let now = now_ms();
-        let herdr_host = rows.iter().any(|s| s.herdr_pane.is_some() && s.terminal.is_none()).then(|| crate::macos::app_hosting("herdr")).flatten();
+        let herdr_host = rows.iter().any(|s| s.herdr_pane.is_some() && s.terminal.is_none() && s.herdr_machine().is_none()).then(|| crate::macos::app_hosting("herdr")).flatten();
         for (index, session) in rows.iter().enumerate() {
+            if let Some((_, machine)) = sections.iter().find(|(start, _)| *start == index) {
+                menu.addItem(&NSMenuItem::separatorItem(mtm));
+                menu.addItem(&NSMenuItem::sectionHeaderWithTitle(&NSString::from_str(&format!("Herdr · {machine}")), mtm));
+            }
             let title = row_title(session);
             let item = self.item(&title, Some(sel!(openSession:)), "");
             item.setTag(index as isize);
@@ -237,11 +256,13 @@ impl Controller {
             item.setToolTip(Some(&NSString::from_str(&row_tooltip(session, now))));
             menu.addItem(&item);
 
-            let resume = self.item(&format!("Resume “{}” in Terminal", status::truncate(&title, 48)), Some(sel!(resumeSession:)), "");
-            resume.setTag(index as isize);
-            resume.setAlternate(true);
-            resume.setKeyEquivalentModifierMask(NSEventModifierFlags::Option);
-            menu.addItem(&resume);
+            if session.herdr_machine().is_none() {
+                let resume = self.item(&format!("Resume “{}” in Terminal", status::truncate(&title, 48)), Some(sel!(resumeSession:)), "");
+                resume.setTag(index as isize);
+                resume.setAlternate(true);
+                resume.setKeyEquivalentModifierMask(NSEventModifierFlags::Option);
+                menu.addItem(&resume);
+            }
         }
         *self.ivars().rows.borrow_mut() = rows;
 
@@ -394,10 +415,19 @@ fn provider_bundle(provider: &str) -> Option<&'static str> {
     }
 }
 
+fn remote_label(session: &Session) -> String {
+    let origin = session.origin.as_deref().unwrap_or("Herdr");
+    origin.strip_prefix("Herdr · ").unwrap_or(origin).trim_end_matches(" · Disconnected").to_string()
+}
+
 fn host_icon(session: &Session, herdr_host: Option<&str>) -> Option<Retained<NSImage>> {
-    let path = match (session.herdr_pane.is_some() && session.terminal.is_none(), herdr_host) {
-        (true, Some(app)) => Some(app.to_string()),
-        _ => host_bundle(session).and_then(app_path),
+    let path = if session.herdr_machine().is_some() {
+        app_path(HERDR_APP)
+    } else {
+        match (session.herdr_pane.is_some() && session.terminal.is_none(), herdr_host) {
+            (true, Some(app)) => Some(app.to_string()),
+            _ => host_bundle(session).and_then(app_path),
+        }
     }?;
     ICONS.with(|cache| {
         cache
@@ -598,6 +628,15 @@ fn open_provider_app(session: &Session) {
 }
 
 fn open_session(session: &Session, settings: &Settings) {
+    if let (Some(machine), Some(pane)) = (session.herdr_machine().map(String::from), session.herdr_pane.clone()) {
+        std::thread::spawn(move || {
+            if let Some(herdr) = crate::herdr::executable() {
+                crate::herdr_remote::focus(&herdr, &machine, &pane);
+            }
+            open_bundle(HERDR_APP);
+        });
+        return;
+    }
     if let (Some(socket), Some(pane)) = (session.herdr_socket.clone(), session.herdr_pane.clone()) {
         let terminal = session.terminal.clone();
         std::thread::spawn(move || {

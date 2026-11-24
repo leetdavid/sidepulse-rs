@@ -89,9 +89,17 @@ pub enum Request {
     HerdrSync {
         socket: String,
         agents: Vec<HerdrAgent>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        #[serde(default = "connected")]
+        connected: bool,
     },
     OpenSettings,
     Stop,
+}
+
+fn connected() -> bool {
+    true
 }
 
 fn default_hold() -> f64 {

@@ -50,6 +50,17 @@ impl Session {
     pub fn is_herdr_only(&self) -> bool {
         self.scope.starts_with(HERDR_PREFIX)
     }
+
+    pub fn herdr_machine(&self) -> Option<&str> {
+        self.herdr_socket.as_deref()?.strip_prefix(REMOTE_SOURCE_PREFIX)
+    }
+}
+
+pub const REMOTE_SOURCE_PREFIX: &str = "machine:";
+
+fn source_tag(source: &str) -> String {
+    let hash = source.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+    format!("{:08x}", hash as u32)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -175,11 +186,26 @@ impl Store {
         true
     }
 
-    pub fn herdr_sync(&mut self, socket: &str, agents: Vec<HerdrAgent>, now_ms: u64) -> bool {
+    pub fn herdr_sync(&mut self, socket: &str, agents: Vec<HerdrAgent>, label: Option<&str>, connected: bool, now_ms: u64) -> bool {
+        let origin = label.map_or_else(|| "Herdr".to_string(), |l| format!("Herdr · {l}"));
+        let remote = label.is_some();
+        if !connected {
+            let disconnected = format!("{origin} · Disconnected");
+            let mut changed = false;
+            for session in self.sessions.values_mut().filter(|s| s.is_herdr_only() && s.herdr_socket.as_deref() == Some(socket)) {
+                if session.mode != Mode::IdleReady || session.origin.as_deref() != Some(disconnected.as_str()) {
+                    session.mode = Mode::IdleReady;
+                    session.origin = Some(disconnected.clone());
+                    changed = true;
+                }
+            }
+            return changed;
+        }
+        let tag = source_tag(socket);
         let mut changed = false;
         let mut live = HashSet::new();
         for agent in agents {
-            let hooked = agent.session_id.as_ref().and_then(|sid| {
+            let hooked = agent.session_id.as_ref().filter(|_| !remote).and_then(|sid| {
                 self.sessions.values_mut().find(|s| !s.is_herdr_only() && s.provider == agent.provider && s.session_id.as_ref() == Some(sid))
             });
             if let Some(session) = hooked {
@@ -190,7 +216,7 @@ impl Store {
                 }
                 continue;
             }
-            let scope = format!("{HERDR_PREFIX}{}", agent.terminal_id);
+            let scope = format!("{HERDR_PREFIX}{tag}:{}", agent.terminal_id);
             live.insert(scope.clone());
             let title = agent.title.as_deref().map(|t| status::clean_text(t, 192)).filter(|t| !t.trim().is_empty());
             if let Some(existing) = self.sessions.get_mut(&scope)
@@ -198,11 +224,15 @@ impl Store {
                 && existing.title == title
             {
                 existing.herdr_pane = Some(agent.pane_id.clone());
+                if existing.origin.as_deref() != Some(origin.as_str()) {
+                    existing.origin = Some(origin.clone());
+                    changed = true;
+                }
                 continue;
             }
             let short_id: String = agent.session_id.as_deref().unwrap_or("").chars().take(8).collect();
             let project = agent.cwd.as_deref().and_then(|c| self.project_name(c));
-            let fallback = format!("{} in Herdr", status::provider_label(&agent.provider));
+            let fallback = format!("{} in {origin}", status::provider_label(&agent.provider));
             let display_name = status::display_name(project.as_deref(), title.as_deref(), &short_id, &fallback);
             self.sessions.insert(
                 scope.clone(),
@@ -220,8 +250,8 @@ impl Store {
                     title,
                     tool_name: None,
                     message: None,
-                    origin: Some("Herdr".into()),
-                    origin_kind: Some("herdr".into()),
+                    origin: Some(origin.clone()),
+                    origin_kind: Some(if remote { "herdr_remote" } else { "herdr" }.into()),
                     terminal: None,
                     herdr_pane: Some(agent.pane_id),
                     herdr_socket: Some(socket.to_string()),
@@ -413,27 +443,46 @@ mod tests {
     #[test]
     fn herdr_fills_in_unhooked_agents_and_removes_closed_panes() {
         let mut store = Store::default();
-        assert!(store.herdr_sync("/s", vec![herdr("t1", Some("x"), Mode::Working)], 1_000));
+        assert!(store.herdr_sync("/s", vec![herdr("t1", Some("x"), Mode::Working)], None, true, 1_000));
         assert_eq!(store.snapshot(2_000, HOUR).mode, Mode::Working);
-        assert!(!store.herdr_sync("/s", vec![herdr("t1", Some("x"), Mode::Working)], 5_000));
+        assert!(!store.herdr_sync("/s", vec![herdr("t1", Some("x"), Mode::Working)], None, true, 5_000));
         assert_eq!(store.snapshot(6_000, HOUR).sessions[0].updated_ms, 1_000);
-        assert!(store.herdr_sync("/s", vec![], 7_000));
+        assert!(store.herdr_sync("/s", vec![], None, true, 7_000));
         assert!(store.snapshot(8_000, HOUR).sessions.is_empty());
     }
 
     #[test]
     fn hooks_take_precedence_over_herdr() {
         let mut store = Store::default();
-        store.herdr_sync("/s", vec![herdr("t1", Some("a"), Mode::IdleReady)], 1_000);
+        store.herdr_sync("/s", vec![herdr("t1", Some("a"), Mode::IdleReady)], None, true, 1_000);
         store.submit(report("claude:a", Mode::Working, "UserPromptSubmit"), 2_000);
         let snap = store.snapshot(3_000, HOUR);
         assert_eq!(snap.sessions.len(), 1);
         assert_eq!(snap.sessions[0].scope, "claude:a");
-        store.herdr_sync("/s", vec![herdr("t1", Some("a"), Mode::IdleReady)], 4_000);
+        store.herdr_sync("/s", vec![herdr("t1", Some("a"), Mode::IdleReady)], None, true, 4_000);
         let snap = store.snapshot(5_000, HOUR);
         assert_eq!(snap.sessions.len(), 1);
         assert_eq!(snap.sessions[0].herdr_pane.as_deref(), Some("w1:t1"));
         assert_eq!(snap.mode, Mode::Working);
+    }
+
+    #[test]
+    fn remote_machines_are_kept_apart_and_marked_disconnected() {
+        let mut store = Store::default();
+        store.submit(report("claude:a", Mode::Completed, "Stop"), 1_000);
+        store.herdr_sync("machine:m1", vec![herdr("t1", Some("a"), Mode::WaitingForInput)], Some("mac"), true, 2_000);
+        store.herdr_sync("/local.sock", vec![herdr("t1", None, Mode::IdleReady)], None, true, 2_000);
+        let snap = store.snapshot(3_000, HOUR);
+        let remote: Vec<_> = snap.sessions.iter().filter(|s| s.herdr_machine() == Some("m1")).collect();
+        assert_eq!(remote.len(), 1, "remote agent is not merged into the local hook session with the same id");
+        assert_eq!(remote[0].origin.as_deref(), Some("Herdr · mac"));
+        assert_eq!(snap.mode, Mode::WaitingForInput);
+        assert_eq!(snap.sessions.len() + snap.recent.len(), 3);
+        assert!(store.herdr_sync("machine:m1", vec![], Some("mac"), false, 4_000));
+        let snap = store.snapshot(5_000, HOUR);
+        let remote = snap.sessions.iter().find(|s| s.herdr_machine() == Some("m1")).unwrap();
+        assert_eq!(remote.mode, Mode::IdleReady);
+        assert_eq!(remote.origin.as_deref(), Some("Herdr · mac · Disconnected"));
     }
 
     #[test]

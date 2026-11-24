@@ -218,8 +218,8 @@ impl Engine {
                 log(&format!("outputs {}", if enabled { "enabled" } else { "paused" }));
                 json!({"ok": true})
             }
-            Request::HerdrSync { socket, agents } => {
-                if self.store.herdr_sync(&socket, agents, now_ms()) {
+            Request::HerdrSync { socket, agents, label, connected } => {
+                if self.store.herdr_sync(&socket, agents, label.as_deref(), connected, now_ms()) {
                     self.store_dirty_since.get_or_insert_with(Instant::now);
                 }
                 json!({"ok": true})
